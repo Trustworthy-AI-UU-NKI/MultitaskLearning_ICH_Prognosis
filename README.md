@@ -43,7 +43,7 @@ ICH prepared for Deep Learning dataset. You can ask for access to the dataset at
 To launch the training of one of the available models run the following:
 
 ```
-python /PATH_TO_REPO/"name_model".py 
+python /PATH_TO_REPO/trainImageModels/train_"name_model".py 
 ```
 
 ### Aknowledgments
