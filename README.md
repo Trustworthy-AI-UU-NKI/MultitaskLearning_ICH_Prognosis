@@ -11,6 +11,7 @@ imbalanced-learn==0.11.0
 itk==5.3.0
 matplotlib==3.6.2
 matplotlib-inline==0.1.6
+numpy==1.24.3
 opencv-python==4.7.0.72
 openpyxl==3.1.2
 pandas==1.5.2
