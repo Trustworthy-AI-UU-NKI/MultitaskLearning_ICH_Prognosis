@@ -1,6 +1,6 @@
 # Enhancing Intracranial Hemorrhage Prognosis through Multi-task Learning
 
-This repository contains the code of the paper \textbf{Enhancing Intracranial Hemorrhage Prognosis through Multi-task Learning}.
+This repository contains the code of the paper **Enhancing Intracranial Hemorrhage Prognosis through Multi-task Learning**.
 
 ### Requirements
 
@@ -35,14 +35,14 @@ tqdm==4.42.1
 ### Dataset
 
 All experiments were conducted using the open-source Head-CT 2D/3D images with and without
-ICH prepared for Deep Learning. dataset. You can ask for access to the dataset at this [link](https://digital.csic.es/handle/10261/275792).
+ICH prepared for Deep Learning dataset. You can ask for access to the dataset at this [link](https://digital.csic.es/handle/10261/275792).
 
 ### Training
 
 To launch the training of one of the available models run the following:
 
 ```
-python /PATH_TO_REPO/train.py 
+python /PATH_TO_REPO/"name_model".py 
 ```
 
 ### Aknowledgments
