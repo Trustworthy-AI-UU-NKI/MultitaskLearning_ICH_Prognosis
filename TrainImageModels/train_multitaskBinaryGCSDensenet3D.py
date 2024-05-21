@@ -13,7 +13,7 @@ import torch.nn as nn
 import functools
 import operator
 from sklearn.model_selection import StratifiedKFold
-
+from bootstrapDEF import bootstrap_metric_ci
 from torchsummary import summary
 
 from IM_outputPrognosisGCS_Pytorch import PrognosisICH_BinaryGCS_Model
@@ -733,18 +733,19 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     print("Best threshold based on F1-score:", best_threshold_f1, "Best metrics based on f1-score:", best_metrics_f1)
     fold_metrics_f1_df = pd.concat([fold_metrics_f1_df, pd.DataFrame([best_metrics_f1])], ignore_index=True)
 
-    try:
-        test_auc_boots=bootstrapping(y_true=labels_test_tensor, y_pred=all_probabilities_test, y_pred_threshold=predicted_labels_test, 
-                    path_to_save_metrics='/home/ubuntu/tenerife/data/ICH_results/tabularData_model', 
-                    metrics = 'AUC', confidence = 0.95, n_bootstraps = 1000)
-        print(test_auc_boots)
+    # try:
+    #     test_auc_boots=bootstrapping(y_true=labels_test_tensor, y_pred=all_probabilities_test, y_pred_threshold=predicted_labels_test, 
+    #                 path_to_save_metrics='/home/ubuntu/tenerife/data/ICH_results/tabularData_model', 
+    #                 metrics = 'AUC', confidence = 0.95, n_bootstraps = 1000)
+    #     print(test_auc_boots)
 
-        all_metrics_boots=bootstrapping(y_true=labels_test_tensor, y_pred=all_probabilities_test, y_pred_threshold=predicted_labels_test, 
-                    path_to_save_metrics='/home/ubuntu/tenerife/data/ICH_results/tabularData_model', 
-                    metrics = 'METRICS', confidence = 0.95, n_bootstraps = 1000)
-        print(all_metrics_boots)
-    except Exception as e:
-        print(e)
+    #     all_metrics_boots=bootstrapping(y_true=labels_test_tensor, y_pred=all_probabilities_test, y_pred_threshold=predicted_labels_test, 
+    #                 path_to_save_metrics='/home/ubuntu/tenerife/data/ICH_results/tabularData_model', 
+    #                 metrics = 'METRICS', confidence = 0.95, n_bootstraps = 1000)
+    #     print(all_metrics_boots)
+    # except Exception as e:
+    #     print(e)
+    
 
     # save fold_metrics_df
     fold_metrics_df.to_csv(os.path.join(path_to_save_results, "fold_metrics_df_"+name_file+".csv"), index=False)
