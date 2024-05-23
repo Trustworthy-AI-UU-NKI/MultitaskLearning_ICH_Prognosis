@@ -7,13 +7,14 @@ import torch
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import LambdaLR
-from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score, balanced_accuracy_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score, balanced_accuracy_score, confusion_matrix, mean_absolute_error, mean_squared_error
 import torch
 import torch.nn as nn
 import functools
 import operator
 from sklearn.model_selection import StratifiedKFold
 from torchsummary import summary
+from imbalancedOrdinalMetric import imbalanced_ordinal_classification_index, uoc_index
 
 from IM_outputPrognosisGCS_Pytorch import PrognosisICH_ThreeClassGCS_Model
 
@@ -58,9 +59,9 @@ import torch.nn.functional as F
 
 np.set_printoptions(precision=3)
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ICH_models/MulticlassOutput"
-path_to_save_results = '/home/ubuntu/tenerife/data/ICH_results/MulticlassOutput/ThreeClassGCSPrognosis'
-name_file = "ThreeClassGCS_DenseNet_MulticlassOutput"
+path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/ThreeClassGCS_Prognosis_SAME_LOSS_PARAM"
+path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/ThreeClassGCS_Prognosis_SAME_LOSS_PARAM'
+name_file = "ThreeClassGCS__SAME_LOSS_PARAM_DenseNet_MulticlassOutput"
 
 def ordinal_encode(y, num_classes):
     """
@@ -162,14 +163,15 @@ skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=1)
 print("=" * 80)
 # save best metrics for each fold
 fold_metrics_df = pd.DataFrame(columns=['Fold', 'AUC', 'Balanced_accuracy', 'Accuracy', 'Specificity', 'NPV', 'Precision', 'Recall', 'F1-score',
-                                         'AUC_GCS', 'Balanced_accuracy_GCS', 'Accuracy_GCS', 'Specificity_GCS', 'NPV_GCS', 'Precision_GCS', 'Recall_GCS', 'F1-score_GCS'])
+                                        'Balanced_accuracy_GCS', 'Accuracy_GCS', 'MAE_GCS', 'RMSE_GCS', 'UOC_index_GCS', 'cohen_kappa_score_GCS',
+                                        ])
 # save metrics for best threshold regarding recall for each fold
 fold_metrics_recall_df = pd.DataFrame(columns=['Fold', 'AUC', 'Threshold', 'Balanced_accuracy', 'Accuracy', 'Specificity', 'NPV', 'Precision', 'Recall', 'F1-score'])
 # save metrics for best threshold regarding f1-score for each fold
 fold_metrics_f1_df = pd.DataFrame(columns=['Fold', 'AUC', 'Threshold', 'Balanced_accuracy', 'Accuracy', 'Specificity', 'NPV', 'Precision', 'Recall', 'F1-score'])
 # save test labels and predictions for each fold
 test_labels_df = pd.DataFrame(columns=['Fold', 'True_labels', 'Probabilities_labels_test', 'Predicted_labels_test_th0.5',
-                                       'True_labels_GCS', 'Probabilities_labels_test_GCS', 'Predicted_labels_test_th0.5_GCS'])
+                                       'True_labels_GCS', 'Predicted_labels_test_th0.5_GCS'])
 
 # Iterate over the folds
 for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_all)):
@@ -251,19 +253,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
         gcs_test['GCS'] = gcs_test['GCS'].apply(lambda x: 2 if x<=8 else (1 if x <= 12 else 0))
         gcs_val['GCS'] = gcs_val['GCS'].apply(lambda x: 2 if x<=8 else (1 if x <= 12 else 0))
         # three class encode GCS using ordinal_encode
-        gcs_train_tensor = ordinal_encode(gcs_train['GCS'].values, 3)
-        gcs_val_tensor = ordinal_encode(gcs_val['GCS'].values, 3)
-        gcs_test_tensor = ordinal_encode(gcs_test['GCS'].values, 3)
+        gcs_train_tensor = ordinal_encode(gcs_train['GCS'].values, 2)
+        gcs_val_tensor = ordinal_encode(gcs_val['GCS'].values, 2)
+        gcs_test_tensor = ordinal_encode(gcs_test['GCS'].values, 2)
         print("Number of ordinal categorical variables:", len(ordinal_categorical_var))
         print("Distribution ov values of GCS after binaryzation")
         print("Train:", gcs_train['GCS'].value_counts())
         print("Val:", gcs_val['GCS'].value_counts())
         print("Test:", gcs_test['GCS'].value_counts())
-        
-        # convert to tensor
-        gcs_train_tensor = gcs_train['GCS'].values.tolist()
-        gcs_val_tensor = gcs_val['GCS'].values.tolist()
-        gcs_test_tensor = gcs_test['GCS'].values.tolist()
     
     train_files = [{"image": image_name, "label": label_name, "gcs":gcs_name} for image_name, label_name, gcs_name in zip(images_res, labels_res, gcs_train_tensor)]
     val_files = [{"image": image_name, "label": label_name, "gcs":gcs_name} for image_name, label_name, gcs_name in zip(images_val, labels_val, gcs_val_tensor)]
@@ -343,7 +340,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
 
         # loss_function = torch.nn.CrossEntropyLoss() # this is for 2 out_channels output
         binary_loss_function = torch.nn.BCEWithLogitsLoss().to(device) # also works with this data
-        ordinal_loss_function = torch.nn.BCEWithLogitsLoss().to(device)
+        ordinal_loss_function_GCS = torch.nn.BCEWithLogitsLoss().to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001, amsgrad=True)
         # optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
@@ -353,17 +350,22 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
         val_interval = 1
         best_metric = -1
         best_metric_epoch = -1
-        best_gcs_metric = -1
-        best_gcs_metric_epoch = -1
         epoch_loss_values = []
         epoch_auc_values = []
         epoch_accuracy_values = []
-        epoch_gcs_accuracy_values = []
-        epoch_gcs_auc_values = []
         auc_values = []
-        val_gcs_auc_values = []
-        val_gcs_accuracy_values = []
         accuracy_values = []
+
+        best_gcs_metric = -1
+        best_gcs_metric_epoch = -1
+        epoch_gcs_accuracy_values = []
+        epoch_gcs_mae_values = []
+        epoch_gcs_rmse_values = []
+        epoch_gcs_uoc_index_values = []
+        val_gcs_mae_values = []
+        val_gcs_accuracy_values = []
+        val_gcs_rmse_values = []
+        val_gcs_uoc_index_values = []
 
         max_epochs = 100
 
@@ -406,16 +408,16 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 inputs, labels, labels_gcs = batch_data["image"].to(device), batch_data["label"].to(device), batch_data["gcs"].to(device)
                 # optimizer.zero_grad()
                 # print(inputs.shape)
-                binary_output, ordinal_output = model(inputs)
+                binary_output, ordinal_output_gcs = model(inputs)
                 ### sequeeze to get the right output shape
                 binary_output = binary_output.squeeze()
                 binary_loss = binary_loss_function(binary_output, labels.float())
                 # print("Predicted probabilities binary output:", binary_output)
-                ordinal_output = ordinal_output.squeeze()
+                ordinal_output_gcs = ordinal_output_gcs.squeeze()
                 # print("Labels GCS:", labels_gcs.squeeze().long())
-                ordinal_loss = ordinal_loss_function(ordinal_output, labels_gcs.float())
+                ordinal_loss = ordinal_loss_function_GCS(ordinal_output_gcs, labels_gcs.float())
                 # Combine losses
-                combined_loss = binary_loss + ordinal_loss  # Consider weighting losses if necessary
+                combined_loss = 0.4*binary_loss + 0.3*ordinal_loss  # Consider weighting losses if necessary
 
                 combined_loss = combined_loss / accumulation_steps  # Normalize loss for accumulation
                 combined_loss.backward()  # Accumulate gradients
@@ -434,15 +436,18 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 labels_train.extend(labels.cpu().numpy())
                 predictions_train.extend(train_predictions.detach().cpu().numpy())
                 # for GCS
-                labels_gcs_train.extend(labels_gcs.cpu().numpy())
-                ordinal_probabilities = nn.Sigmoid()(ordinal_output)
-                probabilities_gcs_train.extend(ordinal_probabilities.detach().cpu().numpy())
+                labels_gcs_encoded = labels_gcs.cpu().numpy()
+                labels_gcs_unencoded = labels_gcs_encoded[:, 0] + labels_gcs_encoded[:, 1]
+                labels_gcs_train.extend(labels_gcs_unencoded)
+                probabilities = nn.Sigmoid()(ordinal_output_gcs)
+                predicted_ordinal_classes_encoded = probabilities > threshold
+                predicted_ordinal_classes_encoded = predicted_ordinal_classes_encoded.astype(int)
+                # print("Predicted ordinal classes encoded:", predicted_ordinal_classes_encoded)
+                # unencode predicted classes
+                predicted_ordinal_classes_encoded = predicted_ordinal_classes_encoded
+                predicted_ordinal_classes = predicted_ordinal_classes_encoded[:, 0] + predicted_ordinal_classes_encoded[:, 1]
                 # print("Predicted probabilities ordinal output GCS:", ordinal_probabilities)
-                # Predicted classes
-                predicted_ordinal_classes = (ordinal_probabilities >= threshold).float()
-                predictions_gcs_train.extend(predicted_ordinal_classes.detach().cpu().numpy())
-                # print("Predicted classes ordinal output GCS:", predicted_ordinal_classes)
-                # print(labels.cpu().numpy(), train_predictions.detach().cpu().numpy())
+                predictions_gcs_train.extend(predicted_ordinal_classes)
             
             # Evaluation of binary prognosis
             train_auc=roc_auc_score(labels_train, probabilities_train)
@@ -456,12 +461,16 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
             print(f"Train epoch {epoch + 1} average loss: {epoch_loss:.3f}, train_auc: {train_auc:.3f}, train_accuracy: {train_accuracy:.3f}")
             # Evaluation of gcs prediction
             gcs_accuracy_train = accuracy_score(labels_gcs_train, predictions_gcs_train)
-            # weighted_kappa_train = cohen_kappa_score(labels_gcs_train, predictions_gcs_train, weights='quadratic')
-            gcs_auc_train = roc_auc_score(labels_gcs_train, probabilities_gcs_train)
-            print(f"Train epoch {epoch + 1} GCS accuracy: {gcs_accuracy_train:.3f}, GCS AUC: {gcs_auc_train:.3f}")
+            gcs_MAE_train = mean_absolute_error(labels_gcs_train, predictions_gcs_train)
+            gcs_RMSE_train = np.sqrt(mean_squared_error(labels_gcs_train, predictions_gcs_train, squared=False))
+            weighted_kappa_train = cohen_kappa_score(labels_gcs_train, predictions_gcs_train, weights='quadratic')
+            uoc_index_train = uoc_index(labels_gcs_train, predictions_gcs_train)
+            print(f"Train epoch {epoch + 1} GCS accuracy: {gcs_accuracy_train:.3f}, GCS MAE: {gcs_MAE_train:.3f}, GCS RMSE: {gcs_RMSE_train:.3f}, GCS weighted (quadratic) kappa: {weighted_kappa_train:.3f}, uoc_index: {uoc_index_train:.3f}")
             # print(f"Train epoch {epoch + 1} GCS accuracy: {gcs_accuracy_train:.3f}, weighted (quadratic) kappa: {weighted_kappa_train:.3f}")
             epoch_gcs_accuracy_values.append(gcs_accuracy_train)
-            epoch_gcs_auc_values.append(gcs_auc_train)
+            epoch_gcs_mae_values.append(gcs_MAE_train)
+            epoch_gcs_rmse_values.append(gcs_RMSE_train)
+            epoch_gcs_uoc_index_values.append(uoc_index_train)
             if (epoch + 1) % val_interval == 0:
                 model.eval()
 
@@ -470,7 +479,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 for val_data in val_loader:
                     val_images, val_labels, val_labels_gcs = val_data["image"].to(device), val_data["label"].to(device), val_data["gcs"].to(device)
                     with torch.no_grad():
-                        binary_val_outputs, ordinal_val_outputs = model(val_images)
+                        binary_val_outputs, ordinal_val_outputs_GCS = model(val_images)
                         binary_val_outputs = binary_val_outputs.squeeze() ### sequeeze to get the right output shape
 
                         # _, predicted = val_outputs.max(1)
@@ -482,12 +491,16 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                         all_probabilities.extend(probabilities.cpu().numpy())
 
                         # for GCS
-                        ordinal_val_outputs = ordinal_val_outputs.squeeze()
-                        ordinal_val_probabilities = nn.Sigmoid()(ordinal_val_outputs)
-                        predicted_val_ordinal_classes = (ordinal_val_probabilities >= threshold).float()
-                        all_gcs_predictions.extend(predicted_val_ordinal_classes.cpu().numpy())
-                        all_gcs_labels.extend(val_labels_gcs.cpu().numpy())
-                        all_gcs_probabilities.extend(ordinal_val_probabilities.cpu().numpy())
+                        ordinal_val_outputs_GCS = ordinal_val_outputs_GCS.squeeze()
+                        ordinal_val_probabilities = nn.Sigmoid()(ordinal_val_outputs_GCS)
+                        predicted_val_ordinal_classes_encoded = ordinal_val_probabilities > threshold
+                        predicted_val_ordinal_classes_encoded = predicted_val_ordinal_classes_encoded.astype(int)
+                        predicted_val_ordinal_classes = predicted_val_ordinal_classes_encoded[:, 0] + predicted_val_ordinal_classes_encoded[:, 1]
+
+                        all_gcs_predictions.extend(predicted_val_ordinal_classes)
+                        val_labels_gcs_encoded = val_labels_gcs.cpu().numpy()
+                        val_labels_gcs_unencoded = val_labels_gcs_encoded[:, 0] + val_labels_gcs_encoded[:, 1]
+                        all_gcs_labels.extend(val_labels_gcs_unencoded)
 
                 all_predictions = np.array(all_predictions).astype(int)
                 all_probabilities = np.array(all_probabilities)
@@ -506,19 +519,22 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
 
                 # for GCS
                 all_gcs_predictions = np.array(all_gcs_predictions).astype(int)
-                all_gcs_probabilities = np.array(all_gcs_probabilities)
                 all_gcs_labels = np.array(all_gcs_labels)
                 unique_gcs, counts_gcs = np.unique(all_gcs_predictions, return_counts=True)
-                print("Predictions count GCS:", dict(zip(unique_gcs, counts_gcs)))
-                print("Probabilities in validation GCS:", all_gcs_probabilities)
+                print("Predictions count validation GCS:", dict(zip(unique_gcs, counts_gcs)))
+                # print("Probabilities in validation GCS:", ordinal_val_probabilities)
                 # Calculate metrics
-                roc_auc_gcs = roc_auc_score(all_gcs_labels, all_gcs_probabilities,average='weighted')
                 accuracy_gcs = balanced_accuracy_score(all_gcs_labels, all_gcs_predictions)
-                precision_gcs = precision_score(all_gcs_labels, all_gcs_predictions, average='weighted')
-                recall_gcs = recall_score(all_gcs_labels, all_gcs_predictions, average='weighted')
-                f1_gcs = f1_score(all_gcs_labels, all_gcs_predictions, average='weighted')
-                val_gcs_auc_values.append(roc_auc_gcs)
+                gcs_MAE_val = mean_absolute_error(all_gcs_labels, all_gcs_predictions)
+                gcs_RMSE_val = np.sqrt(mean_squared_error(all_gcs_labels, all_gcs_predictions, squared=False))
+                weighted_kappa_val = cohen_kappa_score(all_gcs_labels, all_gcs_predictions, weights='quadratic')
+                uoc_index_val = uoc_index(all_gcs_labels, all_gcs_predictions)
+                print(f"Validation epoch {epoch + 1} GCS accuracy: {accuracy_gcs:.3f}, GCS MAE: {gcs_MAE_val:.3f}, GCS RMSE: {gcs_RMSE_val:.3f}, GCS weighted (quadratic) kappa: {weighted_kappa_val:.3f}, uoc_index: {uoc_index_val:.3f}")
                 val_gcs_accuracy_values.append(accuracy_gcs)
+                val_gcs_mae_values.append(gcs_MAE_val)
+                val_gcs_rmse_values.append(gcs_RMSE_val)
+                val_gcs_uoc_index_values.append(uoc_index_val)
+
                 # to perform early-stopping we select the best metric in prognosis
                 if accuracy > best_metric:
                     best_metric = accuracy
@@ -542,63 +558,96 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 print(f"Epoch {epoch + 1}/{max_epochs} - AUC: {roc_auc:.3f}, Accuracy: {accuracy:.3f}, Precision: {precision:.3f}, Recall: {recall:.3f}, F1-score: {f1:.3f}")
 
                 print(
-                        f"current epoch: {epoch + 1} current AUC: {roc_auc:.3f}"
-                        f" current accuracy: {accuracy:.3f}"
-                        f" best accuracy: {best_metric:.3f}"
-                        f" at epoch: {best_metric_epoch}"
-                        f" current GCS AUC: {roc_auc_gcs:.3f}"
+                        f" current GCS MAE: {gcs_MAE_val:.3f}"
+                        f" current GCS RMSE: {gcs_RMSE_val:.3f}"
+                        f" current GCS weighted (quadratic) kappa: {weighted_kappa_val:.3f}"
                         f" current GCS accuracy: {accuracy_gcs:.3f}"
                         f" best GCS accuracy: {best_gcs_metric:.3f}"
                         f" at epoch: {best_gcs_metric_epoch}"
-                    )
-                # for GCS
-                print(f"Epoch {epoch + 1}/{max_epochs} - GCS AUC: {roc_auc_gcs:.3f}, GCS Accuracy: {accuracy_gcs:.3f}, GCS Precision: {precision_gcs:.3f}, GCS Recall: {recall_gcs:.3f}, GCS F1-score: {f1_gcs:.3f}")
-
+                )
                 # writer.add_scalar("auc", roc_auc, epoch + 1)
 
         print(f"Training completed, best_metric in prognosis: {best_metric:.3f} at epoch: {best_metric_epoch}")
         print("-" * 50)
         # writer.close()
         plt.figure("train", (12, 6))
-        plt.subplot(1, 3, 1)
+        plt.subplot(1, 2, 1)
         plt.title("Epoch Average Loss")
         x = [i + 1 for i in range(len(epoch_loss_values))]
         y = epoch_loss_values
         plt.xlabel("epoch")
         plt.plot(x, y)
-        plt.subplot(1, 3, 2)
-        plt.title("AUC")
+
+        plt.subplot(1, 2, 2)
         x = [i + 1 for i in range(len(epoch_auc_values))]
         y = epoch_auc_values
-        plt.plot(x, y)
-        x = [i + 1 for i in range(len(epoch_gcs_auc_values))]
-        y = epoch_gcs_auc_values
         plt.plot(x, y)
         x = [val_interval * (i + 1) for i in range(len(auc_values))]
         y = auc_values
         plt.plot(x, y)
-        x = [val_interval * (i + 1) for i in range(len(auc_values))]
-        y = val_gcs_auc_values
-        plt.plot(x, y)
         plt.xlabel("epoch")
-        plt.legend(['train', 'train_GCS', 'val', 'val_GCS'], loc='best')
-        plt.subplot(1, 3, 3)
-        plt.title("Balanced ccuracy")
+        plt.legend(['train', 'val'], loc='best')
+        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_LossAUC_Prog_"+name_file+"_fold"+str(fold)+".png"))
+        plt.close()
+        
+        plt.figure("train", (12, 12))
+        plt.subplot(1, 2, 1)
+        plt.title("Balanced accuracy")
         x = [i + 1 for i in range(len(epoch_accuracy_values))]
         y = epoch_accuracy_values
-        plt.plot(x, y)
-        x = [i + 1 for i in range(len(epoch_gcs_accuracy_values))]
-        y = epoch_gcs_accuracy_values
         plt.plot(x, y)
         x = [val_interval * (i + 1) for i in range(len(accuracy_values))]
         y = accuracy_values
         plt.plot(x, y)
-        x = [val_interval * (i + 1) for i in range(len(accuracy_values))]
+        plt.xlabel("epoch")
+        plt.legend(['train', 'val'], loc='best')
+
+        plt.subplot(1, 2, 2)
+        x = [i + 1 for i in range(len(epoch_gcs_accuracy_values))]
+        y = epoch_gcs_accuracy_values
+        plt.plot(x, y)       
+        x = [val_interval * (i + 1) for i in range(len(val_gcs_accuracy_values))]
         y = val_gcs_accuracy_values
         plt.plot(x, y)
         plt.xlabel("epoch")
-        plt.legend(['train', 'train_GCS', 'val', 'val_GCS'], loc='best')
-        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_"+name_file+"_fold"+str(fold)+".png"))
+        plt.legend(['train_GCS', 'val_GCS'], loc='best')
+        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_BalAcc_"+name_file+"_fold"+str(fold)+".png"))
+        plt.close()
+
+        plt.subplot(1, 3, 1)
+        plt.title("MAE")
+        x = [i + 1 for i in range(len(epoch_gcs_mae_values))]
+        y = epoch_gcs_mae_values
+        plt.plot(x, y)
+        x = [val_interval * (i + 1) for i in range(len(val_gcs_mae_values))]
+        y = val_gcs_mae_values
+        plt.plot(x, y)
+        plt.xlabel("epoch")
+        plt.legend(['train_GCS', 'val_GCS'], loc='best')
+
+        plt.subplot(1, 3, 2)
+        plt.title("RMSE")
+        x = [i + 1 for i in range(len(epoch_gcs_rmse_values))]
+        y = epoch_gcs_rmse_values
+        plt.plot(x, y)
+        x = [val_interval * (i + 1) for i in range(len(val_gcs_rmse_values))]
+        y = val_gcs_rmse_values
+        plt.plot(x, y)
+        plt.xlabel("epoch")
+        plt.legend(['train_GCS', 'val_GCS'], loc='best')
+
+        plt.subplot(1, 3, 3)
+        plt.title("UOC index")
+        x = [i + 1 for i in range(len(epoch_gcs_uoc_index_values))]
+        y = epoch_gcs_uoc_index_values
+        plt.plot(x, y)
+        x = [val_interval * (i + 1) for i in range(len(val_gcs_uoc_index_values))]
+        y = val_gcs_uoc_index_values
+        plt.plot(x, y)
+        plt.xlabel("epoch")
+        plt.legend(['train_GCS', 'val_GCS'], loc='best')
+        
+        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_GCS_"+name_file+"_fold"+str(fold)+".png"))
         plt.close()
 
     print("Inference in test")
@@ -616,7 +665,6 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     labels_test_tensor = []
     # for GCS
     predicted_labels_gcs_test = []
-    all_probabilities_gcs_test = []
     labels_gcs_test_tensor = []
     with torch.no_grad():
         for test_data in test_loader:
@@ -632,23 +680,25 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
             #  for GCS
             ordinal_test_outputs = ordinal_test_outputs.squeeze()
             ordinal_probabilities_test = nn.Sigmoid()(ordinal_test_outputs)
-            predicted_ordinal_classes_test = (ordinal_probabilities_test >= threshold).float()
-            all_probabilities_gcs_test.extend(ordinal_probabilities_test.cpu().numpy())
-            predicted_labels_gcs_test.extend(predicted_ordinal_classes_test.cpu().numpy())
-            labels_gcs_test_tensor.extend(test_labels_gcs.cpu().numpy())
+            predicted_ordinal_classes_encoded_test = ordinal_probabilities_test > threshold
+            predicted_ordinal_classes_encoded_test = predicted_ordinal_classes_encoded_test.astype(int)
+            predicted_ordinal_classes_test = predicted_ordinal_classes_encoded_test[:, 0] + predicted_ordinal_classes_encoded_test[:, 1]
+            predicted_labels_gcs_test.extend(predicted_ordinal_classes_test)
+            labels_gcs_test_encoded = test_labels_gcs.cpu().numpy()
+            labels_gcs_test_unencoded = labels_gcs_test_encoded[:, 0] + labels_gcs_test_encoded[:, 1]
+            labels_gcs_test_tensor.extend(labels_gcs_test_unencoded) 
 
 
     all_probabilities_test = np.array(all_probabilities_test)
     labels_test_tensor = np.array(labels_test_tensor).astype(int)
     predicted_labels_test=np.array(predicted_labels_test).astype(int)
     # for GCS
-    all_probabilities_gcs_test = np.array(all_probabilities_gcs_test)
     labels_gcs_test_tensor = np.array(labels_gcs_test_tensor).astype(int)
     predicted_labels_gcs_test=np.array(predicted_labels_gcs_test).astype(int)
     # create a fold_array that repeates the fold number as many times as test samples
     fold_array = np.full((len(labels_test_tensor)), fold)
     combined=np.column_stack((fold_array, labels_test_tensor, all_probabilities_test, predicted_labels_test, 
-                              labels_gcs_test_tensor, all_probabilities_gcs_test, predicted_labels_gcs_test))
+                              labels_gcs_test_tensor, predicted_labels_gcs_test))
     test_labels_df = pd.concat([test_labels_df, pd.DataFrame(combined, columns=test_labels_df.columns)], ignore_index=True)
     test_balanced_accuracy = balanced_accuracy_score(labels_test_tensor, predicted_labels_test)
     test_accuracy = accuracy_score(labels_test_tensor, predicted_labels_test)
@@ -660,26 +710,22 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     tn, fp, fn, tp = confusion_matrix(labels_test_tensor, predicted_labels_test, labels=[0, 1]).ravel()
     test_NPV=tn/(tn+fn)
     test_specificity=tn/(tn+fp)
+
     # for GCS
     test_gcs_balanced_accuracy = balanced_accuracy_score(labels_gcs_test_tensor, predicted_labels_gcs_test)
     test_gcs_accuracy = accuracy_score(labels_gcs_test_tensor, predicted_labels_gcs_test)
-    test_gcs_auc = roc_auc_score(labels_gcs_test_tensor, all_probabilities_gcs_test)
-    test_gcs_precision = precision_score(labels_gcs_test_tensor, predicted_labels_gcs_test)
-    test_gcs_recall = recall_score(labels_gcs_test_tensor, predicted_labels_gcs_test)
-    test_gcs_f1 = f1_score(labels_gcs_test_tensor, predicted_labels_gcs_test)
-
-    tn_gcs, fp_gcs, fn_gcs, tp_gcs = confusion_matrix(labels_gcs_test_tensor, predicted_labels_gcs_test, labels=[0, 1]).ravel()
-    test_gcs_NPV=tn_gcs/(tn_gcs+fn_gcs)
-    test_gcs_specificity=tn_gcs/(tn_gcs+fp_gcs)
+    test_gcs_mae = mean_absolute_error(labels_gcs_test_tensor, predicted_labels_gcs_test)
+    test_gcs_rmse = np.sqrt(mean_squared_error(labels_gcs_test_tensor, predicted_labels_gcs_test, squared=False))
+    test_gcs_uoc_index = uoc_index(labels_gcs_test_tensor, predicted_labels_gcs_test)
+    test_gcs_kappa = cohen_kappa_score(labels_gcs_test_tensor, predicted_labels_gcs_test, weights='quadratic')
 
     # save in fold_metrics_df
     fold_metrics_df = pd.concat([fold_metrics_df, pd.DataFrame([{'Fold': fold, 'AUC': test_auc, 
                 'Balanced_accuracy': test_balanced_accuracy, 'Accuracy': test_accuracy, 'Specificity': test_specificity, 
                 'NPV': test_NPV, 'Precision': test_precision, 'Recall': test_recall, 'F1-score': test_f1, 
-                'AUC_GCS':test_gcs_auc, 'Balanced_accuracy_GCS': test_gcs_balanced_accuracy,
-                'Accuracy_GCS': test_gcs_accuracy, 'Specificity_GCS': test_gcs_specificity, 
-                'NPV_GCS': test_gcs_NPV, 'Precision_GCS': test_gcs_precision, 'Recall_GCS': test_gcs_recall,
-                'F1-score_GCS': test_gcs_f1}])], ignore_index=True)
+                'Balanced_accuracy_GCS':test_gcs_balanced_accuracy, 'Accuracy_GCS':test_gcs_accuracy, 
+                'MAE_GCS':test_gcs_mae, 'RMSE_GCS':test_gcs_rmse, 
+                'UOC_index_GCS':test_gcs_uoc_index, 'cohen_kappa_score_GCS':test_gcs_kappa}])], ignore_index=True)
 
     print("Probabilities test in prognosis:", all_probabilities_test)
     unique, counts = np.unique(predicted_labels_test, return_counts=True)
@@ -687,12 +733,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     print(f'Test Accuracy: {test_accuracy:.2%}')
     print(f'Test ROC AUC: {test_auc:.4f}, Precision: {test_precision:.4f}, Recall: {test_recall:.4f}, F1: {test_f1:.4f}')
 
-    print("Probabilities test in GCS:", all_probabilities_gcs_test)
     unique_gcs, counts_gcs = np.unique(predicted_labels_gcs_test, return_counts=True)
     print("Predictions count test GCS:", dict(zip(unique_gcs, counts_gcs)))
     print(f'Test GCS Accuracy: {test_gcs_accuracy:.2%}')
-    print(f'Test GCS ROC AUC: {test_gcs_auc:.4f}, Precision: {test_gcs_precision:.4f}, Recall: {test_gcs_recall:.4f}, F1: {test_gcs_f1:.4f}')
-
+    print(f'Test GCS Balanced Accuracy: {test_gcs_balanced_accuracy:.2%}')
+    print(f'Test GCS MAE: {test_gcs_mae:.3f}')
+    print(f'Test GCS RMSE: {test_gcs_rmse:.3f}')
+    print(f'Test GCS UOC index: {test_gcs_uoc_index:.3f}')
+    print(f'Test GCS weighted (quadratic) kappa: {test_gcs_kappa:.3f}')
     # Save predicted labels for test set
     predicted_labels_df = pd.DataFrame({'True Labels': labels_test, 'Predicted Labels': predicted_labels_test})
     # predicted_labels_df.to_csv('predicted_labels.csv', index=False)
@@ -762,32 +810,27 @@ print("Mean NPV:", mean_NPV, "Std NPV:", std_NPV)
 print("Mean Precision:", mean_precision, "Std Precision:", std_precision)
 print("Mean Recall:", mean_recall, "Std Recall:", std_recall)
 print("Mean F1-score:", mean_f1, "Std F1-score:", std_f1)
+
 # for GCS
-mean_auc_gcs = fold_metrics_df['AUC_GCS'].mean()
-std_auc_gcs = fold_metrics_df['AUC_GCS'].std()
+print("=" * 80)
 mean_accuracy_gcs = fold_metrics_df['Accuracy_GCS'].mean()
 std_accuracy_gcs = fold_metrics_df['Accuracy_GCS'].std()
 mean_balanced_accuracy_gcs = fold_metrics_df['Balanced_accuracy_GCS'].mean()
 std_balanced_accuracy_gcs = fold_metrics_df['Balanced_accuracy_GCS'].std()
-mean_specificity_gcs = fold_metrics_df['Specificity_GCS'].mean()
-std_specificity_gcs = fold_metrics_df['Specificity_GCS'].std()
-mean_NPV_gcs = fold_metrics_df['NPV_GCS'].mean()
-std_NPV_gcs = fold_metrics_df['NPV_GCS'].std()
-mean_precision_gcs = fold_metrics_df['Precision_GCS'].mean()
-std_precision_gcs = fold_metrics_df['Precision_GCS'].std()
-mean_recall_gcs = fold_metrics_df['Recall_GCS'].mean()
-std_recall_gcs = fold_metrics_df['Recall_GCS'].std()
-mean_f1_gcs = fold_metrics_df['F1-score_GCS'].mean()
-std_f1_gcs = fold_metrics_df['F1-score_GCS'].std()
-# print metrics
-print("Mean AUC GCS:", mean_auc_gcs, "Std AUC GCS:", std_auc_gcs)
+mean_MAE_gcs = fold_metrics_df['MAE_GCS'].mean()
+std_MAE_gcs = fold_metrics_df['MAE_GCS'].std()
+mean_RMSE_gcs = fold_metrics_df['RMSE_GCS'].mean()
+std_RMSE_gcs = fold_metrics_df['RMSE_GCS'].std()
+mean_uoc_index_gcs = fold_metrics_df['UOC_index_GCS'].mean()
+std_uoc_index_gcs = fold_metrics_df['UOC_index_GCS'].std()
+mean_kappa_gcs = fold_metrics_df['cohen_kappa_score_GCS'].mean()
+std_kappa_gcs = fold_metrics_df['cohen_kappa_score_GCS'].std()
 print("Mean Accuracy GCS:", mean_accuracy_gcs, "Std Accuracy GCS:", std_accuracy_gcs)
 print("Mean Balanced accuracy GCS:", mean_balanced_accuracy_gcs, "Std Balanced accuracy GCS:", std_balanced_accuracy_gcs)
-print("Mean Specificity GCS:", mean_specificity_gcs, "Std Specificity GCS:", std_specificity_gcs)
-print("Mean NPV GCS:", mean_NPV_gcs, "Std NPV GCS:", std_NPV_gcs)
-print("Mean Precision GCS:", mean_precision_gcs, "Std Precision GCS:", std_precision_gcs)
-print("Mean Recall GCS:", mean_recall_gcs, "Std Recall GCS:", std_recall_gcs)
-print("Mean F1-score GCS:", mean_f1_gcs, "Std F1-score GCS:", std_f1_gcs)
+print("Mean MAE GCS:", mean_MAE_gcs, "Std MAE GCS:", std_MAE_gcs)
+print("Mean RMSE GCS:", mean_RMSE_gcs, "Std RMSE GCS:", std_RMSE_gcs)
+print("Mean UOC index GCS:", mean_uoc_index_gcs, "Std UOC index GCS:", std_uoc_index_gcs)
+print("Mean Kappa GCS:", mean_kappa_gcs, "Std Kappa GCS:", std_kappa_gcs)
 
 # calculate best metrics for best threshold based on recall
 mean_auc_recall = fold_metrics_recall_df['AUC'].mean()

@@ -8,15 +8,15 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score, balanced_accuracy_score, confusion_matrix
-import torch
 import torch.nn as nn
 import functools
 import operator
 from sklearn.model_selection import StratifiedKFold
+
 from bootstrapDEF import bootstrap_metric_ci
 from torchsummary import summary
 
-from IM_outputPrognosisGCS_Pytorch import PrognosisICH_BinaryGCS_Model
+from IM_outputPrognosisGCS_Pytorch import PrognosisICH_BinaryGCSBinaryAge_Model
 
 # from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -59,9 +59,10 @@ import torch.nn.functional as F
 
 np.set_printoptions(precision=3)
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_Prognosis"
-path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_Prognosis'
-name_file = "BinaryGCS_Prognosis_SAME_LOSS_PARAM_MulticlassOutput"
+path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis"
+path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis'
+name_file = "MetricsTest_MulticlassOutput_RevisedCI"
+name_file_model = "BinaryGCSBinaryAge_Prognosis_MulticlassOutput"
 
 def ordinal_encode(y, num_classes):
     """
@@ -98,12 +99,10 @@ sys.stdout=open(os.path.join(path_to_save_results, "run_out_"+name_file+"_10fold
 original_stdout = sys.stdout
 
 pin_memory = torch.cuda.is_available()
-str_cuda="cuda:1"
+str_cuda="cuda:0"
 device = torch.device(str_cuda if torch.cuda.is_available() else "cpu")
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 print_config()
-
-torch.cuda.empty_cache()
 
 def print_specific_layer_weights(model, layer_name):
     # print("Name layers in model:")
@@ -156,9 +155,6 @@ print("Number of labels:", len(labels_all))
 images_all=np.array(images_all)
 labels_all=np.array(labels_all)
 
-# decide which loss function to apply
-constrained_loss=False
-
 seed = 1
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
@@ -169,14 +165,16 @@ skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=1)
 print("=" * 80)
 # save best metrics for each fold
 fold_metrics_df = pd.DataFrame(columns=['Fold', 'AUC', 'Balanced_accuracy', 'Accuracy', 'Specificity', 'NPV', 'Precision', 'Recall', 'F1-score',
-                                         'AUC_GCS', 'Balanced_accuracy_GCS', 'Accuracy_GCS', 'Specificity_GCS', 'NPV_GCS', 'Precision_GCS', 'Recall_GCS', 'F1-score_GCS'])
+                                         'AUC_GCS', 'Balanced_accuracy_GCS', 'Accuracy_GCS', 'Specificity_GCS', 'NPV_GCS', 'Precision_GCS', 'Recall_GCS', 'F1-score_GCS',
+                                         'AUC_Age', 'Balanced_accuracy_Age', 'Accuracy_Age', 'Specificity_Age', 'NPV_Age', 'Precision_Age', 'Recall_Age', 'F1-score_Age'])
 # save metrics for best threshold regarding recall for each fold
 fold_metrics_recall_df = pd.DataFrame(columns=['Fold', 'AUC', 'Threshold', 'Balanced_accuracy', 'Accuracy', 'Specificity', 'NPV', 'Precision', 'Recall', 'F1-score'])
 # save metrics for best threshold regarding f1-score for each fold
 fold_metrics_f1_df = pd.DataFrame(columns=['Fold', 'AUC', 'Threshold', 'Balanced_accuracy', 'Accuracy', 'Specificity', 'NPV', 'Precision', 'Recall', 'F1-score'])
 # save test labels and predictions for each fold
 test_labels_df = pd.DataFrame(columns=['Fold', 'True_labels', 'Probabilities_labels_test', 'Predicted_labels_test_th0.5',
-                                       'True_labels_GCS', 'Probabilities_labels_test_GCS', 'Predicted_labels_test_th0.5_GCS'])
+                                       'True_labels_GCS', 'Probabilities_labels_test_GCS', 'Predicted_labels_test_th0.5_GCS',
+                                       'True_labels_Age', 'Probabilities_labels_test_Age', 'Predicted_labels_test_th0.5_Age'])
 
 # Iterate over the folds
 for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_all)):
@@ -240,13 +238,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
         patientID = int(i.split('/')[-1].split('_brain.')[0])
         # get all columns in df for this patient
         X_val = pd.concat([X_val, df[df['PatientID']==patientID]])
-   
+
     # remove PatientID from X_train, X_test and X_val
     X_train = X_train.drop(columns=['PatientID', 'Label (poor_prognosis)'])
     X_test = X_test.drop(columns=['PatientID', 'Label (poor_prognosis)'])
     X_val = X_val.drop(columns=['PatientID', 'Label (poor_prognosis)'])
     
     only_GCS=True
+    only_Age=True
 
     if only_GCS==True:
         gcs_train = X_train[['GCS']]
@@ -258,7 +257,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
         gcs_test['GCS'] = gcs_test['GCS'].apply(lambda x: 1 if x<=8 else 0)
         gcs_val['GCS'] = gcs_val['GCS'].apply(lambda x: 1 if x<=8 else 0)
         print("Number of ordinal categorical variables:", len(ordinal_categorical_var))
-        print("Distribution ov values of GCS after binaryzation")
+        print("Distribution of values of GCS after binaryzation")
         print("Train:", gcs_train['GCS'].value_counts())
         print("Val:", gcs_val['GCS'].value_counts())
         print("Test:", gcs_test['GCS'].value_counts())
@@ -267,10 +266,45 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
         gcs_train_tensor = gcs_train['GCS'].values.tolist()
         gcs_val_tensor = gcs_val['GCS'].values.tolist()
         gcs_test_tensor = gcs_test['GCS'].values.tolist()
+
+        # for the weights:
+        num_positive_gcs = sum(label == 1 for label in gcs_train_tensor)
+        num_negative_gcs = sum(label == 0 for label in gcs_train_tensor)
+        # Calculate the weight for the positive class
+        pos_weight_gcs = torch.tensor([num_negative_gcs / num_positive_gcs], dtype=torch.float32)
+        print("Positive weight GCS:", pos_weight_gcs)
     
-    train_files = [{"image": image_name, "label": label_name, "gcs":gcs_name} for image_name, label_name, gcs_name in zip(images_res, labels_res, gcs_train_tensor)]
-    val_files = [{"image": image_name, "label": label_name, "gcs":gcs_name} for image_name, label_name, gcs_name in zip(images_val, labels_val, gcs_val_tensor)]
-    test_files = [{"image": image_name, "label": label_name, "gcs":gcs_name} for image_name, label_name, gcs_name in zip(images_test, labels_test, gcs_test_tensor)]
+    if only_Age==True:
+        age_train = X_train[['Age']]
+        age_test = X_test[['Age']]
+        age_val = X_val[['Age']]
+        ordinal_regression_var=['Age']
+        # binary encode, if age <=65 then 0, if age >65 then 1
+        age_train['Age'] = age_train['Age'].apply(lambda x: 1 if x>=80 else 0)
+        age_test['Age'] = age_test['Age'].apply(lambda x: 1 if x>=80 else 0)
+        age_val['Age'] = age_val['Age'].apply(lambda x: 1 if x>=80 else 0)
+        print("Number of ordinal categorical variables:", len(ordinal_regression_var))
+        print("Distribution of values of Age after binaryzation")
+        print("Train:", age_train['Age'].value_counts())
+        print("Val:", age_val['Age'].value_counts())
+        print("Test:", age_test['Age'].value_counts())
+        
+        # convert to tensor
+        age_train_tensor = age_train['Age'].values.tolist()
+        age_val_tensor = age_val['Age'].values.tolist()
+        age_test_tensor = age_test['Age'].values.tolist()
+
+        # for the weights:
+        num_positive_age = sum(label == 1 for label in age_train_tensor)
+        num_negative_age = sum(label == 0 for label in age_train_tensor)
+
+        # Calculate the weight for the positive class
+        pos_weight_age = torch.tensor([num_negative_age / num_positive_age], dtype=torch.float32)
+        print("Positive weight Age:", pos_weight_age)
+    
+    train_files = [{"image": image_name, "label": label_name, "gcs":gcs_name, "age": age_name} for image_name, label_name, gcs_name, age_name in zip(images_res, labels_res, gcs_train_tensor, age_train_tensor)]
+    val_files = [{"image": image_name, "label": label_name, "gcs":gcs_name, "age": age_name} for image_name, label_name, gcs_name, age_name in zip(images_val, labels_val, gcs_val_tensor, age_val_tensor)]
+    test_files = [{"image": image_name, "label": label_name, "gcs":gcs_name, "age": age_name} for image_name, label_name, gcs_name, age_name in zip(images_test, labels_test, gcs_test_tensor, age_test_tensor)]
     
     # https://github.com/Project-MONAI/tutorials/blob/main/modules/load_medical_images.ipynb
 
@@ -326,14 +360,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     val_ds = Dataset(data=val_files, transform=val_transforms)
     val_loader = DataLoader(val_ds, batch_size=8, num_workers=2, pin_memory=pin_memory)
     path_to_save_model=os.path.join(path_to_save_model_dir,
-                                                "PrognosisModelICH_DenseNet_"+name_file+"_fold"+str(fold)+".pth")
+                                                "PrognosisModelICH_DenseNet_"+name_file_model+"_fold"+str(fold)+".pth")
     if not os.path.isfile(path_to_save_model):
-        model = PrognosisICH_BinaryGCS_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2)
+        model = PrognosisICH_BinaryGCSBinaryAge_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2)
         # print the name of the layers in the model
         # print("Name layers in model:")
         # for name, param in model.named_parameters():
         #     print(name)
-
+        
         total_params = sum(
             param.numel() for param in model.parameters()
         )
@@ -353,7 +387,8 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
 
         # loss_function = torch.nn.CrossEntropyLoss() # this is for 2 out_channels output
         binary_loss_function = torch.nn.BCEWithLogitsLoss().to(device) # also works with this data
-        ordinal_loss_function = torch.nn.BCEWithLogitsLoss().to(device)
+        ordinal_loss_function_GCS = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_gcs).to(device)
+        ordinal_loss_function_Age = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_age).to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001, amsgrad=True)
         # optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
@@ -365,15 +400,21 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
         best_metric_epoch = -1
         best_gcs_metric = -1
         best_gcs_metric_epoch = -1
+        best_age_metric = -1
+        best_age_metric_epoch = -1
         epoch_loss_values = []
         epoch_auc_values = []
         epoch_accuracy_values = []
         epoch_gcs_accuracy_values = []
         epoch_gcs_auc_values = []
+        epoch_age_accuracy_values = []
+        epoch_age_auc_values = []
         auc_values = []
         val_gcs_auc_values = []
         val_gcs_accuracy_values = []
         accuracy_values = []
+        val_age_auc_values = []
+        val_age_accuracy_values = []
 
         max_epochs = 100
 
@@ -400,6 +441,10 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
             all_gcs_probabilities = []  # To store corresponding probabilities for GCS
             all_gcs_labels = []  # To store ground truth for GCS
 
+            all_age_predictions = []  # To store predicted values for Age
+            all_age_probabilities = []  # To store corresponding probabilities for Age
+            all_age_labels = []  # To store ground truth for Age
+
             predictions_train=[]
             labels_train=[]
             probabilities_train=[]
@@ -408,27 +453,33 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
             labels_gcs_train=[]
             probabilities_gcs_train=[]
 
+            predictions_age_train=[]
+            labels_age_train=[]
+            probabilities_age_train=[]
+
             optimizer.zero_grad()
             i=0
             for batch_data in train_loader:
                 i+=1
                 step += 1
-                inputs, labels, labels_gcs = batch_data["image"].to(device), batch_data["label"].to(device), batch_data["gcs"].to(device)
+                inputs, labels, labels_gcs, labels_age = batch_data["image"].to(device), batch_data["label"].to(device), batch_data["gcs"].to(device), batch_data["age"].to(device)
                 # optimizer.zero_grad()
                 # print(inputs.shape)
-                binary_output, ordinal_output = model(inputs)
+                binary_output, ordinal_output_gcs, output_age = model(inputs)
                 ### sequeeze to get the right output shape
                 binary_output = binary_output.squeeze()
                 binary_loss = binary_loss_function(binary_output, labels.float())
                 # print("Predicted probabilities binary output:", binary_output)
-                ordinal_output = ordinal_output.squeeze()
+                ordinal_output_gcs = ordinal_output_gcs.squeeze()
                 # print("Labels GCS:", labels_gcs.squeeze().long())
-                ordinal_loss = ordinal_loss_function(ordinal_output, labels_gcs.float())
+                ordinal_loss_gcs = ordinal_loss_function_GCS(ordinal_output_gcs, labels_gcs.float())
+
+                output_age = output_age.squeeze()
+                ordinal_loss_age = ordinal_loss_function_Age(output_age, labels_age.float())
+                
                 # Combine losses
-                if constrained_loss==True:
-                    combined_loss = (binary_loss + ordinal_loss)*(1+abs(binary_loss-ordinal_loss)) # constrained_loss
-                else:
-                    combined_loss = 0.4*binary_loss + 0.3*ordinal_loss
+                combined_loss = 0.5*binary_loss + 0.25*ordinal_loss_gcs + 0.25*ordinal_loss_age # Consider weighting losses if necessary
+
                 combined_loss = combined_loss / accumulation_steps  # Normalize loss for accumulation
                 combined_loss.backward()  # Accumulate gradients
 
@@ -456,7 +507,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 predictions_train.extend(train_predictions.detach().cpu().numpy())
                 # for GCS
                 labels_gcs_train.extend(labels_gcs.cpu().numpy())
-                ordinal_probabilities = nn.Sigmoid()(ordinal_output)
+                ordinal_probabilities = nn.Sigmoid()(ordinal_output_gcs)
                 probabilities_gcs_train.extend(ordinal_probabilities.detach().cpu().numpy())
                 # print("Predicted probabilities ordinal output GCS:", ordinal_probabilities)
                 # Predicted classes
@@ -464,6 +515,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 predictions_gcs_train.extend(predicted_ordinal_classes.detach().cpu().numpy())
                 # print("Predicted classes ordinal output GCS:", predicted_ordinal_classes)
                 # print(labels.cpu().numpy(), train_predictions.detach().cpu().numpy())
+                # for Age
+                labels_age_train.extend(labels_age.cpu().numpy())
+                ordinal_probabilities_age = nn.Sigmoid()(output_age)
+                probabilities_age_train.extend(ordinal_probabilities_age.detach().cpu().numpy())
+                # print("Predicted probabilities ordinal output Age:", ordinal_probabilities_age)
+                # Predicted classes
+                predicted_ordinal_classes_age = (ordinal_probabilities_age >= threshold).float()
+                predictions_age_train.extend(predicted_ordinal_classes_age.detach().cpu().numpy())
             
             # Evaluation of binary prognosis
             train_auc=roc_auc_score(labels_train, probabilities_train)
@@ -483,15 +542,25 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
             # print(f"Train epoch {epoch + 1} GCS accuracy: {gcs_accuracy_train:.3f}, weighted (quadratic) kappa: {weighted_kappa_train:.3f}")
             epoch_gcs_accuracy_values.append(gcs_accuracy_train)
             epoch_gcs_auc_values.append(gcs_auc_train)
+            # Evaluation of age prediction
+            age_accuracy_train = accuracy_score(labels_age_train, predictions_age_train)
+            unique_age_train, counts_age_train = np.unique(labels_age_train, return_counts=True)
+            print("labels_age_train:", dict(zip(unique_age_train, counts_age_train)))
+            print("probabilities_age_train:", probabilities_age_train)
+            age_auc_train = roc_auc_score(labels_age_train, probabilities_age_train)
+            print(f"Train epoch {epoch + 1} Age accuracy: {age_accuracy_train:.3f}, Age AUC: {age_auc_train:.3f}")
+            epoch_age_accuracy_values.append(age_accuracy_train)
+            epoch_age_auc_values.append(age_auc_train)
+            
             if (epoch + 1) % val_interval == 0:
                 model.eval()
 
                 num_correct = 0.0
                 metric_count = 0
                 for val_data in val_loader:
-                    val_images, val_labels, val_labels_gcs = val_data["image"].to(device), val_data["label"].to(device), val_data["gcs"].to(device)
+                    val_images, val_labels, val_labels_gcs, val_labels_age = val_data["image"].to(device), val_data["label"].to(device), val_data["gcs"].to(device), val_data["age"].to(device)
                     with torch.no_grad():
-                        binary_val_outputs, ordinal_val_outputs = model(val_images)
+                        binary_val_outputs, ordinal_val_outputs_GCS,  val_outputs_age = model(val_images)
                         binary_val_outputs = binary_val_outputs.squeeze() ### sequeeze to get the right output shape
 
                         # _, predicted = val_outputs.max(1)
@@ -503,12 +572,20 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                         all_probabilities.extend(probabilities.cpu().numpy())
 
                         # for GCS
-                        ordinal_val_outputs = ordinal_val_outputs.squeeze()
-                        ordinal_val_probabilities = nn.Sigmoid()(ordinal_val_outputs)
+                        ordinal_val_outputs_GCS = ordinal_val_outputs_GCS.squeeze()
+                        ordinal_val_probabilities = nn.Sigmoid()(ordinal_val_outputs_GCS)
                         predicted_val_ordinal_classes = (ordinal_val_probabilities >= threshold).float()
                         all_gcs_predictions.extend(predicted_val_ordinal_classes.cpu().numpy())
                         all_gcs_labels.extend(val_labels_gcs.cpu().numpy())
                         all_gcs_probabilities.extend(ordinal_val_probabilities.cpu().numpy())
+
+                        # for age
+                        val_outputs_age = val_outputs_age.squeeze()
+                        val_probabilities_age = nn.Sigmoid()(val_outputs_age)
+                        predicted_val_ordinal_classes_age = (val_probabilities_age >= threshold).float()
+                        all_age_predictions.extend(predicted_val_ordinal_classes_age.cpu().numpy())
+                        all_age_labels.extend(val_labels_age.cpu().numpy())
+                        all_age_probabilities.extend(val_probabilities_age.cpu().numpy())
 
                 all_predictions = np.array(all_predictions).astype(int)
                 all_probabilities = np.array(all_probabilities)
@@ -540,6 +617,23 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 f1_gcs = f1_score(all_gcs_labels, all_gcs_predictions, average='weighted')
                 val_gcs_auc_values.append(roc_auc_gcs)
                 val_gcs_accuracy_values.append(accuracy_gcs)
+
+                # for Age
+                all_age_predictions = np.array(all_age_predictions).astype(int)
+                all_age_probabilities = np.array(all_age_probabilities)
+                all_age_labels = np.array(all_age_labels)
+                unique_age, counts_age = np.unique(all_age_predictions, return_counts=True)
+                print("Predictions count Age:", dict(zip(unique_age, counts_age)))
+                print("Probabilities in validation Age:", all_age_probabilities)
+                # Calculate metrics
+                roc_auc_age = roc_auc_score(all_age_labels, all_age_probabilities,average='weighted')
+                accuracy_age = balanced_accuracy_score(all_age_labels, all_age_predictions)
+                precision_age = precision_score(all_age_labels, all_age_predictions, average='weighted')
+                recall_age = recall_score(all_age_labels, all_age_predictions, average='weighted')
+                f1_age = f1_score(all_age_labels, all_age_predictions, average='weighted')
+                val_age_auc_values.append(roc_auc_age)
+                val_age_accuracy_values.append(accuracy_age)
+
                 # to perform early-stopping we select the best metric in prognosis
                 if accuracy > best_metric:
                     best_metric = accuracy
@@ -559,6 +653,10 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                     best_gcs_metric = accuracy_gcs
                     best_gcs_metric_epoch = epoch + 1
 
+                if accuracy_age > best_age_metric:
+                    best_age_metric = accuracy_age
+                    best_age_metric_epoch = epoch + 1
+
                 # Print metrics for each epoch
                 print(f"Epoch {epoch + 1}/{max_epochs} - AUC: {roc_auc:.3f}, Accuracy: {accuracy:.3f}, Precision: {precision:.3f}, Recall: {recall:.3f}, F1-score: {f1:.3f}")
 
@@ -567,59 +665,109 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                         f" current accuracy: {accuracy:.3f}"
                         f" best accuracy: {best_metric:.3f}"
                         f" at epoch: {best_metric_epoch}"
+                )
+                print(
                         f" current GCS AUC: {roc_auc_gcs:.3f}"
                         f" current GCS accuracy: {accuracy_gcs:.3f}"
                         f" best GCS accuracy: {best_gcs_metric:.3f}"
                         f" at epoch: {best_gcs_metric_epoch}"
-                    )
+                )
+                print(
+                        f" current Age AUC: {roc_auc_age:.3f}"
+                        f" current Age accuracy: {accuracy_age:.3f}"
+                        f" best Age accuracy: {best_age_metric:.3f}"
+                        f" at epoch: {best_age_metric_epoch}"
+                )
                 # for GCS
                 print(f"Epoch {epoch + 1}/{max_epochs} - GCS AUC: {roc_auc_gcs:.3f}, GCS Accuracy: {accuracy_gcs:.3f}, GCS Precision: {precision_gcs:.3f}, GCS Recall: {recall_gcs:.3f}, GCS F1-score: {f1_gcs:.3f}")
-
+                # for age
+                print(f"Epoch {epoch + 1}/{max_epochs} - Age AUC: {roc_auc_age:.3f}, Age Accuracy: {accuracy_age:.3f}, Age Precision: {precision_age:.3f}, Age Recall: {recall_age:.3f}, Age F1-score: {f1_age:.3f}")
                 # writer.add_scalar("auc", roc_auc, epoch + 1)
 
         print(f"Training completed, best_metric in prognosis: {best_metric:.3f} at epoch: {best_metric_epoch}")
         print("-" * 50)
         # writer.close()
-        plt.figure("train", (12, 6))
-        plt.subplot(1, 3, 1)
+        plt.figure("train", (12, 12))
+        plt.subplot(1, 4, 1)
         plt.title("Epoch Average Loss")
         x = [i + 1 for i in range(len(epoch_loss_values))]
         y = epoch_loss_values
         plt.xlabel("epoch")
         plt.plot(x, y)
-        plt.subplot(1, 3, 2)
-        plt.title("AUC")
+
+        plt.subplot(1, 4, 2)
+        plt.title("AUC prognosis")
         x = [i + 1 for i in range(len(epoch_auc_values))]
         y = epoch_auc_values
-        plt.plot(x, y)
-        x = [i + 1 for i in range(len(epoch_gcs_auc_values))]
-        y = epoch_gcs_auc_values
         plt.plot(x, y)
         x = [val_interval * (i + 1) for i in range(len(auc_values))]
         y = auc_values
         plt.plot(x, y)
-        x = [val_interval * (i + 1) for i in range(len(auc_values))]
+        plt.xlabel("epoch")
+        plt.ylabel("AUC")
+        plt.legend(['train', 'val'], loc='best')
+        
+        plt.subplot(1, 4, 3)
+        plt.title("AUC GCS")
+        x = [i + 1 for i in range(len(epoch_gcs_auc_values))]
+        y = epoch_gcs_auc_values
+        plt.plot(x, y)
+        x = [val_interval * (i + 1) for i in range(len(val_gcs_auc_values))]
         y = val_gcs_auc_values
         plt.plot(x, y)
         plt.xlabel("epoch")
-        plt.legend(['train', 'train_GCS', 'val', 'val_GCS'], loc='best')
-        plt.subplot(1, 3, 3)
-        plt.title("Balanced ccuracy")
+        plt.ylabel("AUC")
+        plt.legend(['train_GCS', 'val_GCS'], loc='best')
+
+        plt.subplot(1, 4, 4)
+        plt.title("AUC Age")
+        x = [i + 1 for i in range(len(epoch_age_auc_values))]
+        y = epoch_age_auc_values
+        plt.plot(x, y)
+        x = [val_interval * (i + 1) for i in range(len(val_age_auc_values))]
+        y = val_age_auc_values
+        plt.plot(x, y)
+        plt.xlabel("epoch")
+        plt.ylabel("AUC")
+        plt.legend(['train_Age', 'val_Age'], loc='best')
+        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_LossAUC_"+name_file+"_fold"+str(fold)+".png"))
+        plt.close()
+
+        plt.figure("train", (12, 12))
+        plt.subplot(1, 3, 1)
+        plt.title("Balanced accuracy")
         x = [i + 1 for i in range(len(epoch_accuracy_values))]
         y = epoch_accuracy_values
-        plt.plot(x, y)
-        x = [i + 1 for i in range(len(epoch_gcs_accuracy_values))]
-        y = epoch_gcs_accuracy_values
         plt.plot(x, y)
         x = [val_interval * (i + 1) for i in range(len(accuracy_values))]
         y = accuracy_values
         plt.plot(x, y)
+        plt.xlabel("epoch")
+        plt.ylabel("Balanced accuracy")
+        plt.legend(['train', 'val'], loc='best')
+
+        plt.subplot(1, 3, 2)
+        x = [i + 1 for i in range(len(epoch_gcs_accuracy_values))]
+        y = epoch_gcs_accuracy_values
+        plt.plot(x, y)       
         x = [val_interval * (i + 1) for i in range(len(accuracy_values))]
         y = val_gcs_accuracy_values
         plt.plot(x, y)
         plt.xlabel("epoch")
-        plt.legend(['train', 'train_GCS', 'val', 'val_GCS'], loc='best')
-        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_"+name_file+"_fold"+str(fold)+".png"))
+        plt.ylabel("Balanced accuracy")
+        plt.legend(['train_GCS', 'val_GCS'], loc='best')
+
+        plt.subplot(1, 3, 3)
+        x = [i + 1 for i in range(len(epoch_age_accuracy_values))]
+        y = epoch_age_accuracy_values
+        plt.plot(x, y)
+        x = [val_interval * (i + 1) for i in range(len(val_age_accuracy_values))]
+        y = val_age_accuracy_values
+        plt.plot(x, y)
+        plt.xlabel("epoch")
+        plt.ylabel("Balanced accuracy")
+        plt.legend(['train_Age', 'val_Age'], loc='best')
+        plt.savefig(os.path.join(path_to_save_results, "TrainAndVal_BalAcc_"+name_file+"_fold"+str(fold)+".png"))
         plt.close()
 
     print("Inference in test")
@@ -628,7 +776,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     test_ds = Dataset(data=test_files, transform=val_transforms)
     test_loader = DataLoader(test_ds, batch_size=8)
 
-    model = PrognosisICH_BinaryGCS_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2)
+    model = PrognosisICH_BinaryGCSBinaryAge_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2)
     model.to(device)
     model.load_state_dict(torch.load(path_to_save_model))
     model.eval()
@@ -639,10 +787,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     predicted_labels_gcs_test = []
     all_probabilities_gcs_test = []
     labels_gcs_test_tensor = []
+    # for age
+    predicted_labels_age_test = []
+    all_probabilities_age_test = []
+    labels_age_test_tensor = []
     with torch.no_grad():
         for test_data in test_loader:
-            test_images, test_labels, test_labels_gcs = test_data["image"].to(device), test_data["label"].to(device), test_data["gcs"].to(device)
-            outputs_test, ordinal_test_outputs = model(test_images)
+            test_images, test_labels, test_labels_gcs, test_labels_age = test_data["image"].to(device), test_data["label"].to(device), test_data["gcs"].to(device), test_data["age"].to(device)
+            outputs_test, ordinal_test_outputs, outputs_age = model(test_images)
             outputs_test = outputs_test.squeeze() ### sequeeze to get the right output shape
             probabilities_test = nn.Sigmoid()(outputs_test)
             predicted_test = (probabilities_test >= threshold).float()
@@ -657,7 +809,14 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
             all_probabilities_gcs_test.extend(ordinal_probabilities_test.cpu().numpy())
             predicted_labels_gcs_test.extend(predicted_ordinal_classes_test.cpu().numpy())
             labels_gcs_test_tensor.extend(test_labels_gcs.cpu().numpy())
-
+            # for age
+            outputs_age = outputs_age.squeeze()
+            probabilities_age_test = nn.Sigmoid()(outputs_age)
+            predicted_age_test = (probabilities_age_test >= threshold).float()
+            all_probabilities_age_test.extend(probabilities_age_test.cpu().numpy())
+            predicted_labels_age_test.extend(predicted_age_test.cpu().numpy())
+            labels_age_test_tensor.extend(test_labels_age.cpu().numpy())
+            
 
     all_probabilities_test = np.array(all_probabilities_test)
     labels_test_tensor = np.array(labels_test_tensor).astype(int)
@@ -666,10 +825,15 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     all_probabilities_gcs_test = np.array(all_probabilities_gcs_test)
     labels_gcs_test_tensor = np.array(labels_gcs_test_tensor).astype(int)
     predicted_labels_gcs_test=np.array(predicted_labels_gcs_test).astype(int)
+    # for age
+    all_probabilities_age_test = np.array(all_probabilities_age_test)
+    labels_age_test_tensor = np.array(labels_age_test_tensor).astype(int)
+    predicted_labels_age_test=np.array(predicted_labels_age_test).astype(int)
     # create a fold_array that repeates the fold number as many times as test samples
     fold_array = np.full((len(labels_test_tensor)), fold)
     combined=np.column_stack((fold_array, labels_test_tensor, all_probabilities_test, predicted_labels_test, 
-                              labels_gcs_test_tensor, all_probabilities_gcs_test, predicted_labels_gcs_test))
+                              labels_gcs_test_tensor, all_probabilities_gcs_test, predicted_labels_gcs_test,
+                              labels_age_test_tensor, all_probabilities_age_test, predicted_labels_age_test))
     test_labels_df = pd.concat([test_labels_df, pd.DataFrame(combined, columns=test_labels_df.columns)], ignore_index=True)
     test_balanced_accuracy = balanced_accuracy_score(labels_test_tensor, predicted_labels_test)
     test_accuracy = accuracy_score(labels_test_tensor, predicted_labels_test)
@@ -692,6 +856,17 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     tn_gcs, fp_gcs, fn_gcs, tp_gcs = confusion_matrix(labels_gcs_test_tensor, predicted_labels_gcs_test, labels=[0, 1]).ravel()
     test_gcs_NPV=tn_gcs/(tn_gcs+fn_gcs)
     test_gcs_specificity=tn_gcs/(tn_gcs+fp_gcs)
+    # for age
+    test_age_balanced_accuracy = balanced_accuracy_score(labels_age_test_tensor, predicted_labels_age_test)
+    test_age_accuracy = accuracy_score(labels_age_test_tensor, predicted_labels_age_test)
+    test_age_auc = roc_auc_score(labels_age_test_tensor, all_probabilities_age_test)
+    test_age_precision = precision_score(labels_age_test_tensor, predicted_labels_age_test)
+    test_age_recall = recall_score(labels_age_test_tensor, predicted_labels_age_test)
+    test_age_f1 = f1_score(labels_age_test_tensor, predicted_labels_age_test)
+
+    tn_age, fp_age, fn_age, tp_age = confusion_matrix(labels_age_test_tensor, predicted_labels_age_test, labels=[0, 1]).ravel()
+    test_age_NPV=tn_age/(tn_age+fn_age)
+    test_age_specificity=tn_age/(tn_age+fp_age)
 
     # save in fold_metrics_df
     fold_metrics_df = pd.concat([fold_metrics_df, pd.DataFrame([{'Fold': fold, 'AUC': test_auc, 
@@ -700,7 +875,10 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 'AUC_GCS':test_gcs_auc, 'Balanced_accuracy_GCS': test_gcs_balanced_accuracy,
                 'Accuracy_GCS': test_gcs_accuracy, 'Specificity_GCS': test_gcs_specificity, 
                 'NPV_GCS': test_gcs_NPV, 'Precision_GCS': test_gcs_precision, 'Recall_GCS': test_gcs_recall,
-                'F1-score_GCS': test_gcs_f1}])], ignore_index=True)
+                'F1-score_GCS': test_gcs_f1, 'AUC_Age': test_age_auc, 'Accuracy_Age': test_age_accuracy,
+                'Balanced_accuracy_Age': test_age_balanced_accuracy, 'Precision_Age': test_age_precision,
+                'NPV_Age': test_age_NPV, 'Specificity_Age': test_age_specificity,
+                'Recall_Age': test_age_recall, 'F1-score_Age': test_age_f1}])], ignore_index=True)
 
     print("Probabilities test in prognosis:", all_probabilities_test)
     unique, counts = np.unique(predicted_labels_test, return_counts=True)
@@ -713,6 +891,12 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     print("Predictions count test GCS:", dict(zip(unique_gcs, counts_gcs)))
     print(f'Test GCS Accuracy: {test_gcs_accuracy:.2%}')
     print(f'Test GCS ROC AUC: {test_gcs_auc:.4f}, Precision: {test_gcs_precision:.4f}, Recall: {test_gcs_recall:.4f}, F1: {test_gcs_f1:.4f}')
+
+    print("Probabilities test in Age:", all_probabilities_age_test)
+    unique_age, counts_age = np.unique(predicted_labels_age_test, return_counts=True)
+    print("Predictions count test Age:", dict(zip(unique_age, counts_age)))
+    print(f'Test Age Accuracy: {test_age_accuracy:.2%}')
+    print(f'Test Age ROC AUC: {test_age_auc:.4f}, Precision: {test_age_precision:.4f}, Recall: {test_age_recall:.4f}, F1: {test_age_f1:.4f}')
 
     # Save predicted labels for test set
     predicted_labels_df = pd.DataFrame({'True Labels': labels_test, 'Predicted Labels': predicted_labels_test})
@@ -745,7 +929,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     #     print(all_metrics_boots)
     # except Exception as e:
     #     print(e)
-    
+    bootstrap_metric_ci(y_true = labels_test_tensor, y_pred_threshold = predicted_labels_test)
 
     # save fold_metrics_df
     fold_metrics_df.to_csv(os.path.join(path_to_save_results, "fold_metrics_df_"+name_file+".csv"), index=False)
@@ -785,6 +969,7 @@ print("Mean Precision:", mean_precision, "Std Precision:", std_precision)
 print("Mean Recall:", mean_recall, "Std Recall:", std_recall)
 print("Mean F1-score:", mean_f1, "Std F1-score:", std_f1)
 # for GCS
+print("=" * 80)
 mean_auc_gcs = fold_metrics_df['AUC_GCS'].mean()
 std_auc_gcs = fold_metrics_df['AUC_GCS'].std()
 mean_accuracy_gcs = fold_metrics_df['Accuracy_GCS'].mean()
@@ -801,8 +986,6 @@ mean_recall_gcs = fold_metrics_df['Recall_GCS'].mean()
 std_recall_gcs = fold_metrics_df['Recall_GCS'].std()
 mean_f1_gcs = fold_metrics_df['F1-score_GCS'].mean()
 std_f1_gcs = fold_metrics_df['F1-score_GCS'].std()
-print("=" * 80)
-print("=" * 80)
 # print metrics
 print("Mean AUC GCS:", mean_auc_gcs, "Std AUC GCS:", std_auc_gcs)
 print("Mean Accuracy GCS:", mean_accuracy_gcs, "Std Accuracy GCS:", std_accuracy_gcs)
@@ -812,7 +995,35 @@ print("Mean NPV GCS:", mean_NPV_gcs, "Std NPV GCS:", std_NPV_gcs)
 print("Mean Precision GCS:", mean_precision_gcs, "Std Precision GCS:", std_precision_gcs)
 print("Mean Recall GCS:", mean_recall_gcs, "Std Recall GCS:", std_recall_gcs)
 print("Mean F1-score GCS:", mean_f1_gcs, "Std F1-score GCS:", std_f1_gcs)
-
+print("=" * 80)
+# for age
+mean_auc_age = fold_metrics_df['AUC_Age'].mean()
+std_auc_age = fold_metrics_df['AUC_Age'].std()
+mean_accuracy_age = fold_metrics_df['Accuracy_Age'].mean()
+std_accuracy_age = fold_metrics_df['Accuracy_Age'].std()
+mean_balanced_accuracy_age = fold_metrics_df['Balanced_accuracy_Age'].mean()
+std_balanced_accuracy_age = fold_metrics_df['Balanced_accuracy_Age'].std()
+mean_specificity_age = fold_metrics_df['Specificity_Age'].mean()
+std_specificity_age = fold_metrics_df['Specificity_Age'].std()
+mean_NPV_age = fold_metrics_df['NPV_Age'].mean()
+std_NPV_age = fold_metrics_df['NPV_Age'].std()
+mean_precision_age = fold_metrics_df['Precision_Age'].mean()
+std_precision_age = fold_metrics_df['Precision_Age'].std()
+mean_recall_age = fold_metrics_df['Recall_Age'].mean()
+std_recall_age = fold_metrics_df['Recall_Age'].std()
+mean_f1_age = fold_metrics_df['F1-score_Age'].mean()
+std_f1_age = fold_metrics_df['F1-score_Age'].std()
+# print metrics
+print("Mean AUC Age:", mean_auc_age, "Std AUC Age:", std_auc_age)
+print("Mean Accuracy Age:", mean_accuracy_age, "Std Accuracy Age:", std_accuracy_age)
+print("Mean Balanced accuracy Age:", mean_balanced_accuracy_age, "Std Balanced accuracy Age:", std_balanced_accuracy_age)
+print("Mean Specificity Age:", mean_specificity_age, "Std Specificity Age:", std_specificity_age)
+print("Mean NPV Age:", mean_NPV_age, "Std NPV Age:", std_NPV_age)
+print("Mean Precision Age:", mean_precision_age, "Std Precision Age:", std_precision_age)
+print("Mean Recall Age:", mean_recall_age, "Std Recall Age:", std_recall_age)
+print("Mean F1-score Age:", mean_f1_age, "Std F1-score Age:", std_f1_age)
+print("=" * 80)
+print("=" * 80)
 # calculate best metrics for best threshold based on recall
 mean_auc_recall = fold_metrics_recall_df['AUC'].mean()
 std_auc_recall = fold_metrics_recall_df['AUC'].std()

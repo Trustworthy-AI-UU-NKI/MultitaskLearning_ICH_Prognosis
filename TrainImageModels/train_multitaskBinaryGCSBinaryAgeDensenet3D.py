@@ -59,10 +59,9 @@ import torch.nn.functional as F
 
 np.set_printoptions(precision=3)
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis"
-path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis'
-name_file = "MetricsTest_MulticlassOutput_RevisedCI"
-name_file_model = "BinaryGCSBinaryAge_Prognosis_MulticlassOutput"
+path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM"
+path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM'
+name_file = "BinGCS_BinAge_Prog_SAME_LOSS_PARAM_MulticlassOutput_RevisedCI"
 
 def ordinal_encode(y, num_classes):
     """
@@ -360,7 +359,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     val_ds = Dataset(data=val_files, transform=val_transforms)
     val_loader = DataLoader(val_ds, batch_size=8, num_workers=2, pin_memory=pin_memory)
     path_to_save_model=os.path.join(path_to_save_model_dir,
-                                                "PrognosisModelICH_DenseNet_"+name_file_model+"_fold"+str(fold)+".pth")
+                                                "PrognosisModelICH_DenseNet_"+name_file+"_fold"+str(fold)+".pth")
     if not os.path.isfile(path_to_save_model):
         model = PrognosisICH_BinaryGCSBinaryAge_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2)
         # print the name of the layers in the model
@@ -387,8 +386,8 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
 
         # loss_function = torch.nn.CrossEntropyLoss() # this is for 2 out_channels output
         binary_loss_function = torch.nn.BCEWithLogitsLoss().to(device) # also works with this data
-        ordinal_loss_function_GCS = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_gcs).to(device)
-        ordinal_loss_function_Age = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_age).to(device)
+        ordinal_loss_function_GCS = torch.nn.BCEWithLogitsLoss().to(device)
+        ordinal_loss_function_Age = torch.nn.BCEWithLogitsLoss().to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001, amsgrad=True)
         # optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
@@ -478,7 +477,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 ordinal_loss_age = ordinal_loss_function_Age(output_age, labels_age.float())
                 
                 # Combine losses
-                combined_loss = 0.5*binary_loss + 0.25*ordinal_loss_gcs + 0.25*ordinal_loss_age # Consider weighting losses if necessary
+                combined_loss = 0.4*binary_loss + 0.3*ordinal_loss_gcs + 0.3*ordinal_loss_age # Consider weighting losses if necessary
 
                 combined_loss = combined_loss / accumulation_steps  # Normalize loss for accumulation
                 combined_loss.backward()  # Accumulate gradients

@@ -184,6 +184,42 @@ class PrognosisICH_BinaryGCSBinaryAge_Model(nn.Module):
             return ordinal_outputAge
         else:
             return binary_output, ordinal_outputGCS, ordinal_outputAge
+class PrognosisICH_BinaryAge_Model(nn.Module):
+    def __init__(self, image_shape, depth, spatial_dims=3, in_channels=1, num_classes_binary=1, num_classes_ordinalAge=1, dropout_prob=0.0, saliency_maps=None):
+        super(PrognosisICH_BinaryAge_Model, self).__init__()
+        input_dim = (in_channels, depth, image_shape, image_shape)
+        self.saliency_maps = saliency_maps
+        # Initialize the DenseNet121 without its final layer
+        self.feature_extractor = DenseNet121(spatial_dims=spatial_dims, in_channels=in_channels, out_channels=1, dropout_prob=dropout_prob, pretrained=False)
+        # Remove the last linear layer
+        self.feature_extractor.class_layers = nn.Identity()
+
+        # Binary classification head
+        self.binary_head = nn.Sequential(
+            nn.ReLU(),
+            nn.AdaptiveAvgPool3d(1),
+            nn.Flatten(),
+            nn.Linear(1024, num_classes_binary),
+        )
+
+        # Ordinal regression head Age
+        self.ordinal_headAge = nn.Sequential(
+            nn.ReLU(),
+            nn.AdaptiveAvgPool3d(1),
+            nn.Flatten(),
+            nn.Linear(1024, num_classes_ordinalAge),
+        )
+    
+    def forward(self, x):
+        features = self.feature_extractor(x)
+        binary_output = self.binary_head(features)
+        ordinal_outputAge = self.ordinal_headAge(features)
+        if self.saliency_maps == 'Prognosis':
+            return binary_output
+        elif self.saliency_maps == 'Age':
+            return ordinal_outputAge
+        else:
+            return binary_output, ordinal_outputAge
         
 class PrognosisICH_ThreeClassGCSBinaryAge_Model(nn.Module):
     def __init__(self, image_shape, depth, spatial_dims=3, in_channels=1, num_classes_binary=1, num_classes_ordinalGCS=2, num_classes_ordinalAge=1, dropout_prob=0.0, saliency_maps=None):
