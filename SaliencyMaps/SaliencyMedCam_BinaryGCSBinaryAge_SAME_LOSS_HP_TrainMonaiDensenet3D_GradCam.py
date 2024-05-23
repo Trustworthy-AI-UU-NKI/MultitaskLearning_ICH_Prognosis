@@ -13,10 +13,6 @@ import torch.nn as nn
 import functools
 import operator
 from sklearn.model_selection import StratifiedKFold
-
-from pretrainDiagnosisMonaiDensenet3D import TrainDiagnosisModel
-
-from bootstrapping import bootstrapping
 from torchsummary import summary
 
 from IM_outputPrognosisGCS_Pytorch import PrognosisICH_BinaryGCSBinaryAge_Model
@@ -57,16 +53,15 @@ from monai.transforms import (
     RandAffined,
     Zoomd
 )
-from evaluate_thresholds import EvaluateThresholds
 import torch.nn.functional as F
 from medcam import medcam
 
 np.set_printoptions(precision=3)
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis"
-path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis/SaliencyMapsGCS'
-name_file_saved_model = "BinaryGCSBinaryAge_Prognosis_MulticlassOutput"
-name_file="SaliencyMaps_BinaryGCSBinaryAge_Prognosis"
+path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM"
+path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM/SaliencyMapsPrognosis'
+name_file_saved_model = "BinGCS_BinAge_Prog_SAME_LOSS_PARAM_MulticlassOutput_RevisedCI"
+name_file="SaliencyMaps_BinGCS_BinAge_Prog_SAME_LOSS_PARAM_MulticlassOutput_RevisedCI"
 
 dir_to_save_saliency_maps=os.path.join(path_to_save_results,"MedCam")
 
@@ -351,11 +346,12 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
     test_ds = Dataset(data=test_files, transform=val_transforms)
     test_loader = DataLoader(test_ds, batch_size=1)
 
-    model = PrognosisICH_BinaryGCSBinaryAge_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2, saliency_maps='GCS')
+    model = PrognosisICH_BinaryGCSBinaryAge_Model(image_shape=image_shape, depth=depth, spatial_dims=3, in_channels=1, num_classes_binary=1, dropout_prob=0.2, saliency_maps='Prognosis')
     model.to(device)
     model.load_state_dict(torch.load(path_to_save_model))
-    model = medcam.inject(model, backend='gbp', output_dir=path_to_save_saliency_maps, save_maps=True, return_score=False, cudnn=True)
-    map_type = "guidedBackProp"
+    layer='feature_extractor.features.transition3.conv'
+    model = medcam.inject(model, backend='ggcam', output_dir=path_to_save_saliency_maps, save_maps=True, return_score=False, cudnn=True)
+    map_type = "Guided-Grad-Cam"
     # Note: Guided-Backpropagation ignores parameter layer.
     print("Layer names in model:", medcam.get_layers(model))
     model.eval()
@@ -383,7 +379,7 @@ for fold, (train_index, test_index) in enumerate(skf.split(images_all, labels_al
                 label_name="POOR_PROGNOSIS"
             outputs_test = model(test_images)
             # rename saliency maps file to patientID
-            shutil.move(os.path.join(path_to_save_saliency_maps, "attention_map_"+str(i)+"_0_0.nii.gz"), os.path.join(path_to_save_saliency_maps, str(test_patientID)+"_"+map_type+"-label-"+label_name+".nii.gz"))
+            shutil.move(os.path.join(path_to_save_saliency_maps, layer, "attention_map_"+str(i)+"_0_0.nii.gz"), os.path.join(path_to_save_saliency_maps, layer, str(test_patientID)+"_"+map_type+"-label-"+label_name+".nii.gz"))
             i += 1
             # outputs_test = model(test_images)
             # outputs_test = outputs_test.squeeze() ### sequeeze to get the right output shape
