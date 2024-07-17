@@ -1,6 +1,6 @@
-# Enhancing Intracranial Hemorrhage Prognosis through Multi-task Learning
+# Multi-task Learning Approach for Intracranial Hemorrhage Prognosis
 
-This repository contains the code of the paper **Enhancing Intracranial Hemorrhage Prognosis through Multi-task Learning**.
+This repository contains the code of the paper **Multi-task Learning Approach for Intracranial Hemorrhage Prognosis**.
 
 ### Requirements
 
@@ -40,10 +40,15 @@ ICH prepared for Deep Learning dataset. You can ask for access to the dataset at
 
 ### Training
 
-To launch the training of one of the available models run the following:
+To launch the training of one of the available multitask image models run the following:
 
 ```
 python /PATH_TO_REPO/trainImageModels/train_"name_model".py 
+```
+
+To launch the training of one of the tabular models run the following:
+```
+python /PATH_TO_REPO/trainTabularModels/train_"name_model".py 
 ```
 
 ### Aknowledgments
