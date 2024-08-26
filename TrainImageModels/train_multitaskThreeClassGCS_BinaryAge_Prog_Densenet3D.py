@@ -62,12 +62,28 @@ from monai.transforms import (
 from evaluate_thresholds import EvaluateThresholds
 import torch.nn.functional as F
 
+import json
+
+def load_config(config_path):
+    with open(config_path, 'r') as config_file:
+        config = json.load(config_file)
+    return config
+
+# Load the config file
+config = load_config('/home/ubuntu/tenerife/miriam/MultitaskLearning_ICH_Prognosis/config.json')
+
+# Access the variables from the config dictionary
+path_to_save_model_dir = config["path_to_save_model_dir"]
+path_to_save_results = config["path_to_save_results"]
+name_file = config["name_file"]
+name_file_model = config["name_file_model"]
+
 np.set_printoptions(precision=3)
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/ThreeClassGCS_BinaryAge_Prognosis_SameHP"
-path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/ThreeClassGCS_BinaryAge_Prognosis_SameHP'
-name_file_model = "ThreeClassGCS_BinaryAge_Prognosis_SAMEPARAMETERS_asBinaryGCS_BinaryAge_Prognosis_No_pos_weight"
-name_file= "ThreeClassGCS_BinaryAge_Prognosis_SAMEPARAMETERS_CI_Test"
+# path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/ThreeClassGCS_BinaryAge_Prognosis_SameHP"
+# path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/ThreeClassGCS_BinaryAge_Prognosis_SameHP'
+# name_file_model = "ThreeClassGCS_BinaryAge_Prognosis_SAMEPARAMETERS_asBinaryGCS_BinaryAge_Prognosis_No_pos_weight"
+# name_file= "ThreeClassGCS_BinaryAge_Prognosis_SAMEPARAMETERS_CI_Test"
 
 def ordinal_encode(y, num_classes):
     """

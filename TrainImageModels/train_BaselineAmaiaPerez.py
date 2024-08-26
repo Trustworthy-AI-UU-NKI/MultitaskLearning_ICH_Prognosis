@@ -57,10 +57,26 @@ from monai.transforms import (
 )
 from evaluate_thresholds import EvaluateThresholds
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BaselineAmaia"
-path_to_save_results = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BaselineAmaia"
-name_file_model = "BaselineAmaia_Prognosis301_40"
-name_file = "RepeatCI_Test_BaselineAmaia_Prognosis301_40"
+import json
+
+def load_config(config_path):
+    with open(config_path, 'r') as config_file:
+        config = json.load(config_file)
+    return config
+
+# Load the config file
+config = load_config('/home/ubuntu/tenerife/miriam/MultitaskLearning_ICH_Prognosis/config.json')
+
+# Access the variables from the config dictionary
+path_to_save_model_dir = config["path_to_save_model_dir"]
+path_to_save_results = config["path_to_save_results"]
+name_file = config["name_file"]
+name_file_model = config["name_file_model"]
+
+# path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BaselineAmaia"
+# path_to_save_results = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BaselineAmaia"
+# name_file_model = "BaselineAmaia_Prognosis301_40"
+# name_file = "RepeatCI_Test_BaselineAmaia_Prognosis301_40"
 
 # save prints in a txt file
 sys.stdout=open(os.path.join(path_to_save_results, "run_out_"+name_file+"_10fold.txt"),'w')

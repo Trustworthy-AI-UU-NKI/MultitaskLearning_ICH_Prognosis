@@ -57,11 +57,26 @@ from monai.transforms import (
 from evaluate_thresholds import EvaluateThresholds
 import torch.nn.functional as F
 
+import json
+
+def load_config(config_path):
+    with open(config_path, 'r') as config_file:
+        config = json.load(config_file)
+    return config
+
+# Load the config file
+config = load_config('/home/ubuntu/tenerife/miriam/MultitaskLearning_ICH_Prognosis/config.json')
+
+# Access the variables from the config dictionary
+path_to_save_model_dir = config["path_to_save_model_dir"]
+path_to_save_results = config["path_to_save_results"]
+name_file = config["name_file"]
+
 np.set_printoptions(precision=3)
 
-path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM"
-path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM'
-name_file = "BinGCS_BinAge_Prog_SAME_LOSS_PARAM_MulticlassOutput_RevisedCI"
+# path_to_save_model_dir = "/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Models/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM"
+# path_to_save_results = '/home/ubuntu/tenerife/data/ZZ_ICH_PrognosisMICCAI/Results/BinaryGCS_BinaryAge_Prognosis_SAME_LOSS_PARAM'
+# name_file = "BinGCS_BinAge_Prog_SAME_LOSS_PARAM_MulticlassOutput_RevisedCI"
 
 def ordinal_encode(y, num_classes):
     """
