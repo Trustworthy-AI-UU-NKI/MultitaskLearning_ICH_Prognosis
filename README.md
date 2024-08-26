@@ -1,6 +1,12 @@
 # Multi-task Learning Approach for Intracranial Hemorrhage Prognosis
 
-This repository contains the code of the paper **Multi-task Learning Approach for Intracranial Hemorrhage Prognosis**.
+This repository contains the code of the paper **Multi-task Learning Approach for Intracranial Hemorrhage Prognosis**, accepted at Machine Learning for Medical Imaging workshop @ MICCAI 2024 (MLMI). For our submitted manuscript with added funding acknowledgements and authors' names and affiliations, but without post submission improvements or corrections, please click [here] (https://arxiv.org/abs/2408.08784). The final version is not published yet.
+
+In this study, we aim to enhance image-based prognosis by learning a robust feature representation shared between pronosis and the clinical and demographic variables most highly correlated with it. Our approach mimics clinical decision-making by reinforcing the model to learn valuable prognostic data embedded in the image. We propose a 3D multi-task image model to predict prognosis, Glasgow Coma Scale and age, improving accuracy and interpretability, as shown below.
+![Proposed multi-task image model integrating GCS and age as outputs to regularize the learning and enhance the prognosis task. In the saliency maps, brighter colors mean higher importance.](Figures/Figure_Method.png)
+Our method outperforms current state-of-the-art baseline image models, and demonstrates superior performance in ICH prognosis compared to four board-certified neuroradiologists using only CT scans as input.
+![Saliency maps from the paper](Figures/Figure3_SM_guidedBackProp.png)
+Contact: Miriam Cobo (cobocano@ifca.unican.es)
 
 ### Requirements
 
@@ -50,6 +56,14 @@ To launch the training of one of the tabular models run the following:
 ```
 python /PATH_TO_REPO/trainTabularModels/train_"name_model".py 
 ```
+
+### Citation
+
+If you use this code in your research, please cite our paper:
+```
+Final version not published yet.
+```
+
 
 ### Aknowledgments
 
